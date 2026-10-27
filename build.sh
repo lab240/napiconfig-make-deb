@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Build the napiconfig .deb (napi-api + napi-ui, own Python) for arm64.
+# Build the napiconfig .deb (napi-api + napi-ui, own Python).
 #
-#   ./build.sh
+#   ./build.sh                 # arm64
+#   ARCH=amd64 ./build.sh      # x86_64, cross-built (no emulation needed)
 #
 # Env:
+#   ARCH              arm64 (default) or amd64
 #   API_SRC, UI_SRC   source repos (default: ../napi-api, ../napi-ui)
 #   OUT_DIR           output dir (default: ./out)
 #   PKG_REV           Debian revision (default: 1)
@@ -16,6 +18,7 @@ API_SRC=$(realpath "${API_SRC:-$HERE/../napi-api}")
 UI_SRC=$(realpath "${UI_SRC:-$HERE/../napi-ui}")
 OUT_DIR=${OUT_DIR:-$HERE/out}
 PKG_REV=${PKG_REV:-1}
+ARCH=${ARCH:-arm64}
 MAINTAINER=${MAINTAINER:-NapiLab <info@napilab.ru>}
 NODE_IMAGE=${NODE_IMAGE:-node:22-bookworm-slim}
 BUILD_IMAGE=${BUILD_IMAGE:-debian:bookworm}
@@ -41,9 +44,9 @@ fi
 
 docker run --rm "${IDS[@]}" \
     -e PKG_VERSION="$PKG_VERSION" -e API_VERSION="$API_VER" -e UI_VERSION="$UI_VER" \
-    -e MAINTAINER="$MAINTAINER" \
+    -e MAINTAINER="$MAINTAINER" -e ARCH="$ARCH" \
     -v "$API_SRC:/src:ro" -v "$HERE:/deb:ro" -v "$OUT_DIR:/out" \
     -v napi-deb-pip:/root/.cache/pip -v napi-deb-pbs:/root/.cache/pbs \
     "$BUILD_IMAGE" bash /deb/scripts/build-napiconfig.sh
 
-ls -l "$OUT_DIR/napiconfig_${PKG_VERSION}_arm64.deb"
+ls -l "$OUT_DIR/napiconfig_${PKG_VERSION}_${ARCH}.deb"

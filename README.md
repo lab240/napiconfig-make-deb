@@ -1,10 +1,11 @@
 # napiconfig-make-deb
 
-Упаковка NaPi (бэкенд `napi-api` + фронтенд `napi-ui`) в один `.deb` `napiconfig` для arm64.
+Упаковка NaPi (бэкенд `napi-api` + фронтенд `napi-ui`) в один `.deb` `napiconfig` для arm64 и amd64.
 
 ## Сборка
 
-Нужен Docker. Хост arm64 собирает нативно.
+Нужен Docker на хосте arm64. amd64 собирается там же без эмуляции: колёса Python
+скачиваются под x86_64, байткод одинаковый, x86-код при сборке не запускается.
 Исходники (репозитории Igor Kha) кладутся рядом: `../napi-api`, `../napi-ui`,
 или указываются через `API_SRC=` и `UI_SRC=`.
 
@@ -21,6 +22,7 @@ cd napiconfig-make-deb
 ```bash
 ./build.sh                       # → out/napiconfig_<api>+ui<ui>-<rev>_arm64.deb
 SKIP_UI_BUILD=1 PKG_REV=2 ./build.sh   # без пересборки фронта
+ARCH=amd64 ./build.sh            # → out/napiconfig_..._amd64.deb
 ```
 
 - Фронт собирается в `node:22-bookworm-slim` (`scripts/build-ui.sh`).
@@ -28,10 +30,12 @@ SKIP_UI_BUILD=1 PKG_REV=2 ./build.sh   # без пересборки фронт�
   CPython 3.12 из [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
   (релиз и sha256 закреплены в скрипте). Пакет не зависит от Python системы и ставится на
   любой arm64 Debian/Ubuntu с glibc ≥ 2.36: bookworm, trixie, noble.
-- Зависимости Python: `requirements.lock` с хешами. После изменения `../napi-api/pyproject.toml`:
+- Для amd64 проверка импорта при сборке пропускается (нет x86), проверяется только, что все
+  `.so` собраны под x86_64. Запуск проверять на x86-машине.
+- Зависимости Python: `requirements.lock` с хешами (для всех платформ). После изменения `../napi-api/pyproject.toml`:
   `./scripts/lock.sh`.
 
-Размер: .deb ~26 МБ, на диске ~140 МБ (из них Python и библиотеки ~130 МБ).
+Размер: arm64 .deb ~23 МБ, на диске ~125 МБ; amd64 ~27 МБ и ~143 МБ (почти всё — Python и библиотеки).
 Память napi-api такая же, как с системным Python (~120 МБ RSS сразу после старта).
 
 ## Установка на устройство
