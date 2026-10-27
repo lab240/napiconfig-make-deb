@@ -5,7 +5,18 @@
 ## Сборка
 
 Нужен Docker. Хост arm64 собирает нативно.
-Репозитории лежат рядом: `../napi-api`, `../napi-ui`.
+Исходники (репозитории Igor Kha) кладутся рядом: `../napi-api`, `../napi-ui`,
+или указываются через `API_SRC=` и `UI_SRC=`.
+
+```bash
+mkdir napiconfig && cd napiconfig
+git clone https://gitlab.nnz-ipc.net/pub/napilinux/napi-api.git
+git clone https://gitlab.nnz-ipc.net/pub/napilinux/napi-ui.git
+git clone git@github.com:lab240/napiconfig-make-deb.git
+cd napiconfig-make-deb
+```
+
+Собирается то, что сейчас извлечено в `../napi-api` и `../napi-ui` (ветка или тег).
 
 ```bash
 ./build.sh                       # → out/napiconfig_<api>+ui<ui>-<rev>_arm64.deb
