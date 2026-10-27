@@ -1,0 +1,21 @@
+Package: napiconfig
+Version: @VERSION@
+Architecture: arm64
+Maintainer: @MAINTAINER@
+Section: admin
+Priority: optional
+Depends: libc6 (>= 2.36), nginx, openssl, systemd, dbus, influxdb2, telegraf-light | telegraf
+Recommends: netplan.io
+Suggests: network-manager, u-boot-tools, snmpd, influxdb2-cli, mbusd, ttyd
+Conflicts: napi-api, napi-ui
+Replaces: napi-api, napi-ui
+Installed-Size: @SIZE@
+Homepage: https://github.com/lab240
+Description: NaPi web configurator: API backend and web UI
+ Web interface for NaPi devices: network, system services, time, sensors,
+ Modbus gateway, SNMP, InfluxDB and web terminal.
+ .
+ napi-api @API_VERSION@ (FastAPI) with its own Python @PYTHON_VERSION@
+ (python-build-standalone) in /opt/napiconfig, napi-ui @UI_VERSION@ (Vue 3)
+ served by nginx over HTTPS. Works on any arm64 Debian/Ubuntu with
+ glibc >= 2.36 (Debian bookworm, trixie, Ubuntu noble).

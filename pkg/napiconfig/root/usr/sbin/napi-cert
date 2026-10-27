@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Create per-device secrets for nginx on the first boot:
+# the self-signed certificate and the web terminal tokens.
+
+CERT_FILE=${CERT_FILE:-/etc/nginx/cert.pem}
+KEY_FILE=${KEY_FILE:-/etc/nginx/key.pem}
+TOKENS_FILE=${TOKENS_FILE:-/etc/nginx/ttyd_tokens.map}
+
+log() {
+    echo "$*" | logger -t napi-cert
+    echo "$*"
+}
+
+check_openssl_installed() {
+    if ! command -v openssl &> /dev/null; then
+        log "Error: openssl is not installed."
+        exit 1
+    fi
+}
+
+certificate_exists() {
+    [ -s "$CERT_FILE" ] && [ -s "$KEY_FILE" ]
+}
+
+create_certificate() {
+    local cn
+    cn=$(hostname 2>/dev/null || echo napi)
+    if ! openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -out "$CERT_FILE" -keyout "$KEY_FILE" \
+        -subj "/C=RU/O=NaPi/CN=${cn}" 2>/dev/null; then
+        log "Error: openssl failed to create the certificate."
+        exit 1
+    fi
+    log "NaPi-cert certificates have been created."
+}
+
+set_permissions() {
+    chmod 644 "$CERT_FILE"
+    chmod 600 "$KEY_FILE"
+}
+
+tokens_exist() {
+    grep -Eq '^[0-9a-f]{32} 1;$' "$TOKENS_FILE" 2>/dev/null
+}
+
+create_tokens() {
+    local i
+    (
+        umask 077
+        echo "# NaPi web terminal tokens: <token> 1;"
+        for i in 1 2 3 4 5; do
+            echo "$(openssl rand -hex 16) 1;"
+        done
+    ) > "$TOKENS_FILE"
+    chmod 600 "$TOKENS_FILE"
+    log "NaPi-cert web terminal tokens have been created."
+}
+
+main() {
+    check_openssl_installed
+    if certificate_exists; then
+        log "NaPi-cert certificates already exist."
+    else
+        create_certificate
+        set_permissions
+    fi
+    tokens_exist || create_tokens
+}
+
+main

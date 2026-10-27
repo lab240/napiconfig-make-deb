@@ -1,0 +1,11 @@
+[Unit]
+Description=Generate SSL certificate for NaPi-web
+Before=nginx.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/napi-cert
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

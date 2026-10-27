@@ -1,0 +1,15 @@
+[Unit]
+Description=NaPi web terminal (ttyd behind nginx /tty/)
+After=network.target
+ConditionPathExists=/usr/bin/ttyd
+
+[Service]
+Type=simple
+# A UNIX socket for nginx only: no TCP port, works without IPv6 on lo.
+RuntimeDirectory=napi-ttyd
+ExecStart=/usr/bin/ttyd --interface /run/napi-ttyd/ttyd.sock --socket-owner www-data:www-data --base-path /tty --writable login
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,84 @@
+#!/bin/sh
+set -e
+
+ENV_FILE=/etc/napi-api/napi-api.env
+DATA_DIR=/var/lib/napi-api
+SITE=napi.conf
+TOKENS=/etc/nginx/ttyd_tokens.map
+HTTP2=/etc/nginx/napi.d/00-http2.conf
+
+# "http2 on;" appeared in nginx 1.25.1; older nginx gets HTTP/1.1.
+nginx_has_http2_on() {
+    v=$(nginx -v 2>&1 | sed -n 's|.*nginx/\([0-9.]*\).*|\1|p')
+    [ -n "$v" ] && dpkg --compare-versions "$v" ge 1.25.1
+}
+
+if [ "$1" = "configure" ]; then
+    # --- API ---
+    install -d -m 0755 /etc/napi-api
+    # telegraf (not root) reads sensor configs through symlinks
+    # in /etc/telegraf/telegraf.d; the database stays root-only.
+    install -d -m 0755 "$DATA_DIR" "$DATA_DIR/sensor_configs"
+    install -d -m 0700 "$DATA_DIR/db"
+
+    if [ ! -e "$ENV_FILE" ]; then
+        install -m 0600 /usr/share/napiconfig/napi-api.env "$ENV_FILE"
+    fi
+
+    # Netplan renderer of the image: NetworkManager (full Armbian)
+    # or systemd-networkd (BUILD_MINIMAL). Kept if set by hand.
+    if ! grep -q '^NETWORK_RENDERER=' "$ENV_FILE"; then
+        if [ -x /usr/sbin/NetworkManager ] && \
+           systemctl is-enabled -q NetworkManager.service 2>/dev/null; then
+            renderer=NetworkManager
+        else
+            renderer=networkd
+        fi
+        echo "NETWORK_RENDERER='$renderer'" >> "$ENV_FILE"
+    fi
+
+    # One owner per interface: napi-api definitions beat Armbian wildcards.
+    /usr/lib/napiconfig/netplan-takeover install || true
+
+    # --- Web UI (nginx) ---
+    ln -sf ../sites-available/$SITE /etc/nginx/sites-enabled/$SITE
+    # The stock site also wants "listen 80 default_server".
+    if [ -L /etc/nginx/sites-enabled/default ]; then
+        rm -f /etc/nginx/sites-enabled/default
+    fi
+    install -d -m 0755 /etc/nginx/napi.d
+    if nginx_has_http2_on; then
+        echo "http2 on;" > "$HTTP2"
+    else
+        rm -f "$HTTP2"
+    fi
+
+    # Enable works in a chroot (Armbian image build) too.
+    systemctl enable napi-api.service napi-influx-link.service \
+        napi-cert.service napi-ttyd.service influxdb.service >/dev/null 2>&1 || true
+
+    if [ -d /run/systemd/system ]; then
+        # Live system: per-device secrets now.
+        systemctl daemon-reload || true
+        /usr/sbin/napi-cert || true
+        # InfluxDB tokens for Telegraf and napi-api.
+        if [ -x /usr/bin/influxd ]; then
+            systemctl start influxdb.service || true
+            /usr/lib/napiconfig/influx-link --wait 30 --no-api-restart ||
+                echo "napiconfig: InfluxDB link failed, see /usr/lib/napiconfig/influx-link" >&2
+        fi
+        systemctl restart napi-api.service || true
+        if nginx -t -q 2>/dev/null; then
+            systemctl reload-or-restart nginx.service || true
+        else
+            echo "napiconfig: nginx -t failed, check /etc/nginx" >&2
+        fi
+        systemctl restart napi-ttyd.service || true
+    else
+        # Image build (chroot): no secrets in the image. napi-cert.service
+        # and napi-influx-link.service create them on the first boot.
+        [ -e "$TOKENS" ] || : > "$TOKENS"
+    fi
+fi
+
+exit 0

@@ -1,0 +1,265 @@
+#!/opt/napiconfig/python/bin/python3
+"""
+Link Telegraf and napi-api to the local InfluxDB 2 with per-device tokens.
+
+On a fresh InfluxDB it runs the initial setup: user admin with a random
+password, org "napi", bucket "sensors" (30 days). The admin password and the
+operator token go to /root/influxdb-credentials (0600).
+
+Then it checks the tokens and creates a new one when a token is missing or
+rejected:
+  - Telegraf: INFLUX_TOKEN in /etc/default/telegraf, write access to the bucket;
+  - napi-api: INFLUXDB_TOKEN in /etc/napi-api/napi-api.env, read access.
+
+  influx-link [--wait SECONDS] [--no-api-restart]
+
+Idempotent; napi-influx-link.service runs it at every boot before Telegraf,
+so tokens are created on the device, never in the image.
+"""
+
+import argparse
+import grp
+import json
+import os
+import secrets
+import shlex
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+URL = 'http://127.0.0.1:8086'
+ORG = 'napi'
+BUCKET = 'sensors'
+RETENTION = 30 * 24 * 3600
+ADMIN = 'admin'
+
+CREDENTIALS = Path('/root/influxdb-credentials')
+CLI_CONFIG = Path('/root/.influxdbv2/configs')
+TELEGRAF_ENV = Path('/etc/default/telegraf')
+NAPI_ENV = Path('/etc/napi-api/napi-api.env')
+
+
+def log(msg: str) -> None:
+    print(f'influx-link: {msg}', flush=True)
+
+
+def api(method, path, token=None, body=None, params=None, ctype='application/json'):
+    """Call the InfluxDB HTTP API, return (status, parsed body or None)."""
+    url = URL + path
+    if params:
+        url += '?' + urllib.parse.urlencode(params)
+    data = None
+    if body is not None:
+        data = body.encode() if isinstance(body, str) else json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method=method)  # noqa: S310
+    req.add_header('Content-Type', ctype)
+    if token:
+        req.add_header('Authorization', f'Token {token}')
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
+            status, raw = resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        status, raw = e.code, e.read()
+    try:
+        return status, json.loads(raw) if raw else None
+    except ValueError:
+        return status, None
+
+
+def wait_ready(timeout: int) -> bool:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            status, body = api('GET', '/health')
+            if status == 200 and body and body.get('status') == 'pass':
+                return True
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(2)
+
+
+def read_env(path: Path) -> dict[str, str]:
+    """KEY=value lines; values may be quoted as in a shell."""
+    env = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            key, sep, value = line.partition('=')
+            if sep and not key.lstrip().startswith('#'):
+                try:
+                    parts = shlex.split(value)
+                except ValueError:
+                    parts = [value]
+                env[key.strip()] = parts[0] if parts else ''
+    return env
+
+
+def write_env(path: Path, updates: dict[str, str], quote: bool) -> None:
+    """Replace KEY= lines or append them, keep everything else."""
+    lines = path.read_text().splitlines() if path.exists() else []
+    left = dict(updates)
+    for i, line in enumerate(lines):
+        key = line.partition('=')[0].strip()
+        if key in left:
+            value = left.pop(key)
+            lines[i] = f"{key}='{value}'" if quote else f'{key}={value}'
+    lines += [f"{k}='{v}'" if quote else f'{k}={v}' for k, v in left.items()]
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text('\n'.join(lines) + '\n')
+    if path.exists():
+        st = path.stat()
+        os.chown(tmp, st.st_uid, st.st_gid)
+        os.chmod(tmp, st.st_mode & 0o7777)
+    tmp.replace(path)
+
+
+def setup() -> None:
+    """Initial setup of a fresh InfluxDB."""
+    status, body = api('GET', '/api/v2/setup')
+    if status != 200 or not body or not body.get('allowed'):
+        return
+    password = secrets.token_urlsafe(18)
+    status, body = api('POST', '/api/v2/setup', body={
+        'username': ADMIN,
+        'password': password,
+        'org': ORG,
+        'bucket': BUCKET,
+        'retentionPeriodSeconds': RETENTION,
+    })
+    if status != 201:
+        sys.exit(f'influx-link: InfluxDB setup failed: {status} {body}')
+    token = body['auth']['token']
+    old = os.umask(0o077)
+    try:
+        CREDENTIALS.write_text(
+            f'INFLUXDB_ADMIN_USER={ADMIN}\n'
+            f'INFLUXDB_ADMIN_PASSWORD={password}\n'
+            f'INFLUXDB_TOKEN={token}\n'
+        )
+        # influx CLI for root, as "influx setup" would do.
+        if not CLI_CONFIG.exists():
+            CLI_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+            CLI_CONFIG.write_text(
+                f'[default]\n  url = "{URL}"\n  token = "{token}"\n'
+                f'  org = "{ORG}"\n  active = true\n'
+            )
+    finally:
+        os.umask(old)
+    log(f'InfluxDB set up: org {ORG}, bucket {BUCKET}, credentials in {CREDENTIALS}')
+
+
+def bucket_ids(token: str) -> tuple[str, str]:
+    status, body = api('GET', '/api/v2/orgs', token, params={'org': ORG})
+    if status != 200 or not body.get('orgs'):
+        sys.exit(f'influx-link: org {ORG!r} not found ({status})')
+    org_id = body['orgs'][0]['id']
+    status, body = api('GET', '/api/v2/buckets', token, params={'orgID': org_id, 'name': BUCKET})
+    if status == 200 and body.get('buckets'):
+        return org_id, body['buckets'][0]['id']
+    status, body = api('POST', '/api/v2/buckets', token, body={
+        'orgID': org_id,
+        'name': BUCKET,
+        'retentionRules': [{'type': 'expire', 'everySeconds': RETENTION}],
+    })
+    if status != 201:
+        sys.exit(f'influx-link: cannot create bucket {BUCKET!r}: {status} {body}')
+    log(f'bucket {BUCKET} created')
+    return org_id, body['id']
+
+
+def can_write(token: str) -> bool:
+    status, _ = api('POST', '/api/v2/write', token, body='',
+                    params={'org': ORG, 'bucket': BUCKET}, ctype='text/plain')
+    return status == 204
+
+
+def can_read(token: str) -> bool:
+    flux = f'from(bucket: "{BUCKET}") |> range(start: -1m) |> limit(n: 1)'
+    status, _ = api('POST', '/api/v2/query', token, body=flux,
+                    params={'org': ORG}, ctype='application/vnd.flux')
+    return status == 200
+
+
+def new_token(operator: str, org_id: str, bucket_id: str, action: str, who: str) -> str:
+    status, body = api('POST', '/api/v2/authorizations', operator, body={
+        'orgID': org_id,
+        'description': f'{who} ({action} {BUCKET}, napi-influx-link)',
+        'permissions': [{
+            'action': action,
+            'resource': {'type': 'buckets', 'id': bucket_id, 'orgID': org_id},
+        }],
+    })
+    if status != 201:
+        sys.exit(f'influx-link: cannot create token for {who}: {status} {body}')
+    log(f'new {action} token for {who}')
+    return body['token']
+
+
+def systemctl(*args: str) -> bool:
+    return subprocess.run(['systemctl', *args], check=False,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def link_telegraf(operator: str, ids: tuple[str, str]) -> None:
+    if not Path('/etc/telegraf').is_dir():
+        return
+    if can_write(read_env(TELEGRAF_ENV).get('INFLUX_TOKEN', '')):
+        return
+    write_env(TELEGRAF_ENV, {'INFLUX_TOKEN': new_token(operator, *ids, 'write', 'telegraf')},
+              quote=False)
+    try:
+        os.chown(TELEGRAF_ENV, 0, grp.getgrnam('telegraf').gr_gid)
+        os.chmod(TELEGRAF_ENV, 0o640)
+    except KeyError:
+        os.chmod(TELEGRAF_ENV, 0o600)
+    # --no-block: at boot telegraf.service waits for this unit.
+    if systemctl('is-enabled', '-q', 'telegraf.service'):
+        systemctl('reset-failed', 'telegraf.service')
+        systemctl('restart', '--no-block', 'telegraf.service')
+
+
+def link_napi_api(operator: str, ids: tuple[str, str], restart: bool) -> None:
+    if not NAPI_ENV.exists():
+        return
+    env = read_env(NAPI_ENV)
+    updates = {k: v for k, v in
+               {'INFLUXDB_URL': URL, 'INFLUXDB_ORG': ORG, 'INFLUXDB_BUCKET': BUCKET}.items()
+               if env.get(k) != v}
+    if not can_read(env.get('INFLUXDB_TOKEN', '')):
+        updates['INFLUXDB_TOKEN'] = new_token(operator, *ids, 'read', 'napi-api')
+    if not updates:
+        return
+    write_env(NAPI_ENV, updates, quote=True)
+    if restart:
+        systemctl('try-restart', '--no-block', 'napi-api.service')
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser.add_argument('--wait', type=int, default=120, help='seconds to wait for InfluxDB')
+    parser.add_argument('--no-api-restart', action='store_true',
+                        help='do not restart napi-api after changing its env')
+    args = parser.parse_args()
+
+    if not wait_ready(args.wait):
+        sys.exit(f'influx-link: InfluxDB at {URL} is not ready')
+    setup()
+
+    operator = read_env(CREDENTIALS).get('INFLUXDB_TOKEN', '')
+    status, _ = api('GET', '/api/v2/authorizations', operator, params={'limit': 1})
+    if status != 200:
+        log(f'no operator token in {CREDENTIALS} (InfluxDB set up by hand?): tokens not checked')
+        return
+
+    ids = bucket_ids(operator)
+    link_telegraf(operator, ids)
+    link_napi_api(operator, ids, restart=not args.no_api_restart)
+
+
+if __name__ == '__main__':
+    main()

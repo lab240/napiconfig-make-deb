@@ -1,0 +1,64 @@
+#!/opt/napiconfig/python/bin/python3
+"""
+Make napi-api the only owner of explicit ethernet definitions in netplan.
+
+Armbian ships wildcard definitions (match e*, lan*, wan*: DHCP). networkd uses
+the first .network file in lexical order, and netplan names them
+10-netplan-<id>.network, so "all-eth-interfaces" beats "eth0" written by
+napi-api. We move the Armbian file to a backup and install the same
+definitions with a "zz-" id prefix: they keep DHCP for interfaces napi-api
+does not configure and lose to every explicit napi-api definition.
+
+  netplan-takeover install   # idempotent; postrm purge undoes it
+"""
+
+import sys
+from pathlib import Path
+
+import yaml
+
+NETPLAN_DIR = Path('/etc/netplan')
+ARMBIAN_FILES = ['10-dhcp-all-interfaces.yaml']
+FALLBACK = NETPLAN_DIR / '90-napi-fallback.yaml'
+BACKUP_DIR = Path('/var/lib/napi-api/netplan-backup')
+PREFIX = 'zz-'
+
+HEADER = """\
+# Added by napi-api (netplan-takeover).
+# Armbian wildcard definitions, renamed so that interfaces configured
+# in the NaPi web UI take precedence. Original: {backup}
+"""
+
+
+def fallback_config(original: dict) -> dict:
+    """Rename every ethernet definition id with the "zz-" prefix."""
+    network = dict(original.get('network') or {})
+    ethernets = network.get('ethernets') or {}
+    network['ethernets'] = {
+        (name if name.startswith(PREFIX) else PREFIX + name): value
+        for name, value in ethernets.items()
+    }
+    return {'network': network}
+
+
+def install() -> None:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    for name in ARMBIAN_FILES:
+        src = NETPLAN_DIR / name
+        if not src.exists():
+            continue
+        backup = BACKUP_DIR / name
+        config = yaml.safe_load(src.read_text()) or {}
+        FALLBACK.write_text(
+            HEADER.format(backup=backup)
+            + yaml.safe_dump(fallback_config(config), default_flow_style=False, sort_keys=False)
+        )
+        FALLBACK.chmod(0o600)
+        src.replace(backup)
+        print(f'netplan-takeover: {src} -> {backup}, wrote {FALLBACK}')
+
+
+if __name__ == '__main__':
+    if sys.argv[1:] != ['install']:
+        sys.exit(f'usage: {sys.argv[0]} install')
+    install()

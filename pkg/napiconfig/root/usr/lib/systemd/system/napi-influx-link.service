@@ -1,0 +1,14 @@
+[Unit]
+Description=Link Telegraf and NaPi API to local InfluxDB (per-device tokens)
+ConditionPathExists=/usr/bin/influxd
+Wants=influxdb.service
+After=influxdb.service
+Before=telegraf.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/napiconfig/influx-link
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

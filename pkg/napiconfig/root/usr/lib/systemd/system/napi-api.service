@@ -1,0 +1,23 @@
+[Unit]
+Description=Uvicorn (FastAPI) backend server (NaPi API)
+After=network.target dbus.service
+Wants=dbus.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/lib/napi-api
+Environment=PYTHONPATH=/opt/napiconfig
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/napiconfig/python/bin/python3 -m app.prestart
+ExecStart=/opt/napiconfig/python/bin/python3 -m uvicorn app.main:app --app-dir /opt/napiconfig --host 127.0.0.1 --port 8000 --log-level warning
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=5
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

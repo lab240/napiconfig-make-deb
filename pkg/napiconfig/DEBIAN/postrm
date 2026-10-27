@@ -1,0 +1,38 @@
+#!/bin/sh
+set -e
+
+UNITS="napi-api.service napi-influx-link.service napi-cert.service napi-ttyd.service"
+
+case "$1" in
+    remove|purge)
+        systemctl disable $UNITS >/dev/null 2>&1 || true
+        rm -f /etc/nginx/sites-enabled/napi.conf /etc/nginx/napi.d/00-http2.conf
+        rmdir /etc/nginx/napi.d 2>/dev/null || true
+        # Give the port back to the stock site.
+        if [ -e /etc/nginx/sites-available/default ] && \
+           [ ! -e /etc/nginx/sites-enabled/default ]; then
+            ln -s ../sites-available/default /etc/nginx/sites-enabled/default
+        fi
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+            if nginx -t -q 2>/dev/null; then
+                systemctl reload nginx.service || true
+            fi
+        fi
+        ;;
+esac
+
+if [ "$1" = "purge" ]; then
+    # Undo netplan-takeover. The napi-api netplan file stays:
+    # it is the device network config.
+    backup=/var/lib/napi-api/netplan-backup
+    for f in "$backup"/*.yaml; do
+        [ -e "$f" ] && mv -f "$f" /etc/netplan/
+    done
+    rm -f /etc/netplan/90-napi-fallback.yaml
+    # InfluxDB data and /root/influxdb-credentials stay with InfluxDB.
+    rm -rf /etc/napi-api /var/lib/napi-api
+    rm -f /etc/nginx/cert.pem /etc/nginx/key.pem /etc/nginx/ttyd_tokens.map
+fi
+
+exit 0
