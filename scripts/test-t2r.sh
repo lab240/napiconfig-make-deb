@@ -71,6 +71,13 @@ dx 'journalctl -u mbus-gw-t2r -b --no-pager -o cat | grep -E "DEVREADY|LSNRRDY|-
 echo "== Modbus TCP read through the gateway (both ports)"
 dx "$PY /scripts/rtu-slave.py --client 5502; $PY /scripts/rtu-slave.py --client 5503" || true
 
+echo "== Modbus Tests: through the gateway, and the line it holds"
+api POST modbus-test/read '{"mode":"tcp","host":"127.0.0.1","port":5502,"function":3,"address":10,"count":4}'
+api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB7","speed":19200,"parity":"E"}' | grep -o '"error_kind":"[a-z]*"'
+api POST modbus-test/read '{"mode":"tcp","host":"127.0.0.1","port":5509}' | grep -o '"error_kind":"[a-z]*"'
+api POST modbus-test/read '{"mode":"tcp","port":5502,"address":150,"count":2}' | grep -oE '"error_kind":"[a-z]*"|"error":"[^"]*"'
+api POST modbus-test/read '{"mode":"tcp","port":5502,"function":6}' | head -1
+
 echo "== change speed while running -> restart"
 PID1=$(dx 'systemctl show -p MainPID --value mbus-gw-t2r')
 api PUT modbus-gw-t2r/config "{\"serials\":[{\"device\":\"/dev/ttyUSB7\",\"speed\":9600}],\"listeners\":[{\"port\":5502,\"target\":\"/dev/ttyUSB7\"}]}" | head -1
@@ -83,6 +90,12 @@ echo "== stop (as the UI does: stop + disable)"
 api POST 'system/services/mbus-gw-t2r.service/stop?use_system_bus=true' | head -1
 api POST 'system/services/mbus-gw-t2r.service/disable?use_system_bus=true' | head -1
 dx 'for i in $(seq 1 120); do case $(systemctl is-active mbus-gw-t2r) in active|deactivating) ;; *) break ;; esac; sleep 1; done; echo "stopped after ~${i}s: $(systemctl is-active mbus-gw-t2r)"; systemctl show -p Result -p ExecMainStatus mbus-gw-t2r; journalctl -u mbus-gw-t2r -b --no-pager -o cat | tail -5'
+
+echo "== Modbus Tests: RTU directly on a line (a pty nobody holds)"
+dx "systemd-run -q --unit=rtu-slave2 $PY /scripts/rtu-slave.py --pty /dev/ttyUSB8; sleep 1"
+api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","speed":9600,"function":4,"address":0,"count":3}'
+api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","address":120,"count":1}' | grep -o '"error_kind":"[a-z]*"'
+api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","unit_id":7,"timeout_ms":300}' | grep -oE '"error_kind":"[a-z]*"|"elapsed_ms":[0-9.]*'
 
 echo "== purge mbus-gw-t2r"
 dx 'DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq mbus-gw-t2r >/dev/null 2>&1; systemctl is-active mbus-gw-t2r || true; ls /etc/default/mbus-gw-t2r 2>&1 | tail -1'
