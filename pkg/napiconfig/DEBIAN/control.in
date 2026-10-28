@@ -6,7 +6,7 @@ Section: admin
 Priority: optional
 Depends: libc6 (>= 2.36), nginx, openssl, systemd, dbus, influxdb2, telegraf-light | telegraf
 Recommends: netplan.io
-Suggests: network-manager, u-boot-tools, snmpd, influxdb2-cli, mbusd, ttyd
+Suggests: network-manager, u-boot-tools, snmpd, influxdb2-cli, mbusd, mbus-gw-t2r, ttyd
 Conflicts: napi-api, napi-ui
 Replaces: napi-api, napi-ui
 Installed-Size: @SIZE@
