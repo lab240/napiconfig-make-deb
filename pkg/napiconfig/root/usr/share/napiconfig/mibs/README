@@ -1,0 +1,12 @@
+Standard MIB modules for the SNMP Tests page of napiconfig (names and
+decoding of values). Device MIBs uploaded on the MIBs page are read first.
+
+IETF and IANA modules: extracted as is from the RFCs and IANA registries
+(the same files snmp-mibs-downloader fetches). Copyright (C) The Internet
+Society / IETF Trust and the persons identified as the document authors.
+Extracting a MIB module as is for separate use is permitted (RFC 3978,
+section 3.3; BCP 78); modules from RFCs after 10 Nov 2008 are under the
+Simplified BSD License of the IETF Trust Legal Provisions.
+
+NET-SNMP-*, UCD-*, LM-SENSORS-MIB: from net-snmp (libsnmp-base),
+BSD-style licenses, see https://github.com/net-snmp/net-snmp/blob/master/COPYING

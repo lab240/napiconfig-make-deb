@@ -139,6 +139,7 @@ tar -C "$STAGE/usr/share/napiconfig/html" -xf /out/napi-ui-dist.tar
 {
     echo "napiconfig: napi-api ${API_VERSION}, napi-ui ${UI_VERSION} (Igor Kha, MIT)"
     echo "Python ${PBS_PYTHON}: python-build-standalone ${PBS_RELEASE}, $(pbs_url "$CPU")"
+    echo "MIB modules in /usr/share/napiconfig/mibs: see /usr/share/napiconfig/mibs/README"
     echo "Packaging: https://github.com/lab240"
 } | install -D -m 644 /dev/stdin "$STAGE/usr/share/doc/napiconfig/copyright"
 
