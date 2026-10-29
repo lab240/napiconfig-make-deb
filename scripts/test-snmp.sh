@@ -78,4 +78,24 @@ MIB
 dx "curl -sk -o /dev/null -w '%{http_code}\n' -H 'Authorization: Bearer $TOKEN' -F file=@/tmp/NAPI-TEST-MIB.txt https://127.0.0.1/api/v1/snmp/mibs/"
 api GET 'snmp-test/mib-search?q=napiTest' | python3 -I -c 'import json,sys; l=sys.stdin.read().splitlines(); r=json.loads(l[1]); print(l[0], [(o["name"], o["oid"]) for o in r["objects"]], "modules:", r["modules"])'
 api POST snmp-test/query '{"host":"127.0.0.1","oids":["napiTestCounter"]}' | show
+
+echo "== SNMP Scan: networks, then the container's /24 (it answers on its own address)"
+api GET snmp-test/scan/networks | python3 -I -c 'import json,sys; l=sys.stdin.read().splitlines(); print(l[0], [(n["interface"], n["network"]) for n in json.loads(l[1])])'
+NET=$(api GET snmp-test/scan/networks | sed -n 2p | python3 -I -c 'import json,sys; print(json.load(sys.stdin)[0]["network"])')
+scan() {
+    python3 -I -c '
+import json, sys
+lines = sys.stdin.read().splitlines()
+r = json.loads(lines[1])
+if lines[0] != "200":
+    print(lines[0], lines[1][:200]); sys.exit()
+print(lines[0], r["network"], "hosts", r["hosts"], "sent", r["sent"], "errors", r["send_errors"], "%.1fs" % (r["elapsed_ms"] / 1000))
+for h in r["found"]:
+    print("   ", h["ip"], "v" + h["version"], h["community"], h["sys_name"], "|", h["vendor"], h["object_name"], "|", h["uptime"], "|", h["location"], h["error"])'
+}
+api POST snmp-test/scan "{\"network\":\"$NET\",\"communities\":[\"private\",\"public\"]}" | scan
+echo "== v1 only, a single address"
+api POST snmp-test/scan '{"network":"127.0.0.1","versions":["1"]}' | scan
+echo "== wider than /24 -> 422"
+api POST snmp-test/scan '{"network":"10.0.0.0/23"}' | head -1
 echo OK
