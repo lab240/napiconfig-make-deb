@@ -4,9 +4,9 @@ Architecture: @ARCH@
 Maintainer: @MAINTAINER@
 Section: admin
 Priority: optional
-Depends: libc6 (>= 2.36), nginx, openssl, systemd, dbus, influxdb2, telegraf-light | telegraf
+Depends: libc6 (>= 2.36), nginx, openssl, systemd, dbus, influxdb2, telegraf-light | telegraf, mbusgw-t2r, mbusd, modbus-slave
 Recommends: netplan.io
-Suggests: network-manager, u-boot-tools, snmpd, influxdb2-cli, mbusd, mbusgw-t2r, ttyd
+Suggests: network-manager, u-boot-tools, snmpd, influxdb2-cli, ttyd
 Conflicts: napi-api, napi-ui
 Replaces: napi-api, napi-ui
 Installed-Size: @SIZE@

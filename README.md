@@ -90,7 +90,8 @@ dpkg --purge napi-api napi-ui && apt install ./napiconfig_*_arm64.deb
 ## Сборка образа Armbian
 
 Пакет можно ставить в chroot при сборке образа (оба репозитория подключить заранее).
-В образах Armbian `APT::Install-Recommends "0"`, поэтому всё нужное — в Depends.
+В образах Armbian `APT::Install-Recommends "0"`, поэтому всё нужное — в Depends, в том числе
+шлюзы `mbusgw-t2r`, `mbusd` и эмулятор `modbus-slave` (ставятся выключенными, включаются со страниц).
 В chroot postinst только включает службы и не создаёт секретов.
 Сертификат, токены терминала и токены InfluxDB создаются на первой загрузке, у каждого устройства свои.
 

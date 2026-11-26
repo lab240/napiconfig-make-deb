@@ -97,8 +97,9 @@ api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","speed":9600,"f
 api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","address":120,"count":1}' | grep -o '"error_kind":"[a-z]*"'
 api POST modbus-test/read '{"mode":"rtu","device":"/dev/ttyUSB8","unit_id":7,"timeout_ms":300}' | grep -oE '"error_kind":"[a-z]*"|"elapsed_ms":[0-9.]*'
 
+# napiconfig depends on the gateway: dpkg --force-depends leaves napiconfig in place.
 echo "== purge mbusgw-t2r"
-dx 'DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq mbusgw-t2r >/dev/null 2>&1; systemctl is-active mbusgw-t2r || true; ls /etc/default/mbusgw-t2r 2>&1 | tail -1'
+dx 'dpkg --purge --force-depends mbusgw-t2r >/dev/null 2>&1; systemctl is-active mbusgw-t2r || true; ls /etc/default/mbusgw-t2r 2>&1 | tail -1'
 api GET modbus-gw-t2r/config | head -1
 dx "curl -sk -H 'Authorization: Bearer $TOKEN' https://127.0.0.1/api/v1/modbus-gw-t2r/config | grep -o '\"installed\":[a-z]*'"
 echo OK
