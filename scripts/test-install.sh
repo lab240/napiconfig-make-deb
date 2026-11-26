@@ -25,7 +25,17 @@ dx "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommend
 
 echo "== services"
 sleep 5
-dx 'systemctl is-active napi-api napi-cert nginx influxdb telegraf; systemctl is-enabled napi-api napi-cert napi-ttyd napi-influx-link'
+dx 'systemctl is-active napi-api napi-cert nginx influxdb; systemctl is-enabled napi-api napi-cert napi-ttyd napi-influx-link'
+
+echo "== telegraf: skipped without sensors, runs with one"
+tstate() { dx 'systemctl show -p ActiveState --value telegraf'; }
+[ "$(tstate)" = inactive ] || { echo "telegraf without sensors: $(tstate) FAILED"; exit 1; }
+dx "printf '[[inputs.cpu]]\n' > /etc/telegraf/telegraf.d/t.conf && systemctl restart telegraf && sleep 3"
+[ "$(tstate)" = active ] || { echo "telegraf with a sensor: $(tstate) FAILED"; exit 1; }
+dx 'rm /etc/telegraf/telegraf.d/t.conf && systemctl restart telegraf; sleep 2'
+[ "$(tstate)" = inactive ] || { echo "telegraf after the last sensor: $(tstate) FAILED"; exit 1; }
+dx 'systemctl --failed --no-legend | grep telegraf' && { echo "telegraf is in the failed list FAILED"; exit 1; }
+echo "telegraf: inactive -> active -> inactive, never failed"
 dx '/opt/napiconfig/python/bin/python3 --version; ls /etc/nginx/napi.d; dpkg -l | grep -E "^ii  (influxdb2|telegraf-light) " | cut -c1-60'
 dx 'nginx -t 2>&1'
 dx 'ls -l /etc/nginx/cert.pem /etc/nginx/key.pem /etc/nginx/ttyd_tokens.map /etc/napi-api/napi-api.env /var/lib/napi-api'

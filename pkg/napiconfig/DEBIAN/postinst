@@ -60,6 +60,9 @@ if [ "$1" = "configure" ]; then
     if [ -d /run/systemd/system ]; then
         # Live system: per-device secrets now.
         systemctl daemon-reload || true
+        # Telegraf without sensors is skipped now (telegraf.service.d): forget
+        # the failed state of a start before this package.
+        systemctl reset-failed telegraf.service 2>/dev/null || true
         /usr/sbin/napi-cert || true
         # InfluxDB tokens for Telegraf and napi-api.
         if [ -x /usr/bin/influxd ]; then
